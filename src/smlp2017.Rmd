@@ -1,0 +1,565 @@
+---
+title: "The Art and Science of p-value Hacking"
+author: |
+  | Mark Andrews
+  | Psychology Department, Nottingham Trent University
+  | 
+  | \faEnvelopeO\  ```mark.andrews@ntu.ac.uk```
+  | \faTwitter\ ```@xmjandrews```
+  | \faGithub\ ```https://github.com/lawsofthought/smlp2017```
+date: "August 31, 2017"
+fontsize: 10pt
+output:
+ beamer_presentation:
+  keep_tex: true
+  fonttheme: "serif"
+  includes:
+   in_header: slides_preamble.tex
+bibliography: refs.bib
+csl: apa.csl
+---
+
+
+```{r setup, include=FALSE}
+library(dplyr)
+library(ggplot2)
+
+knitr::opts_chunk$set(echo = FALSE, include=FALSE)
+```
+
+## P-hacking: A definition
+
+- *p-hacking*, broadly defined, is the manipulation, whether intentional or not, of frequentist[^1] statistical testing procedures in order to obtain a desired outcome.
+- Technically, p-hacking is always a type of undisclosed multiple simultaneous statistical testing, whereby the de facto false positive rate greatly exceeds the nominal false-positive rate, i.e. $\alpha$.
+- Related terms include *data-dredging*, *data-snooping*, *data-fishing*, *cherry-picking*, *significance-chasing*, and so on.
+- The original contemporary exposé of this general phenomenon is due to @simmons2011false, followed by @simonsohn2014p.
+
+
+[^1]: The Bayesian counterpart to p-hacking is b-hacking.
+
+
+## Frequentist statistical testing
+\framesubtitle{Newman-Pearson testing}
+
+- In advance of data collection, our scientific hypothesis, operationalized as $\mathcal{H}_1$ (e.g. $\mathcal{H}_1: \theta > 0$), is specified. 
+- This leads to a corresponding null hypothesis, e.g. $\mathcal{H}_0: \theta = 0$, a test statistic $T(\mathcal{D})$, and a critical threshold for the statistic $T_{\text{crit}}$, such that
+$$
+\Prob{\vert T(\mathcal{D}) \vert > T_{\text{crit}} \given \mathcal{H}_0 = \text{True}} = \alpha,
+$$
+where $\alpha$ is conventionally $0.05$.
+- We then determine a minimum sample size for $\mathcal{D}$ so that 
+$$
+\Prob{\vert T(\mathcal{D}) \vert > T_{\text{crit}} \given \mathcal{H}_1 = \text{True}} \gtrapprox 1 - \beta,
+$$
+where $\beta$ is conventionally $0.2$ or $0.1$.
+- We then collect $\mathcal{D}$, calculate $T(\mathcal{D})$. If $\vert T(\mathcal{D}) \vert > T_{\text{crit}}$ then we reject the null. Otherwise, we do not reject it.
+- Following this procedure, in the long run, our false positive rate will be $\alpha$, and our false negative rate will be $\beta$.
+
+
+
+## P-hacking
+
+- In advance of data collection, we begin with a (perhaps vaguely stated) scientific hypothesis.
+- We collect data $\mathcal{D}$.
+- We then operationalize our scientific hypothesis as $\mathcal{H}^{k}_1$, which leads to $\mathcal{H}^{k}_0$, $T^{k}(\mathcal{D})$, $T^{k}_{\text{crit}}$, starting with $k=1$.
+- We calculate $T^k(\mathcal{D})$. If $\vert T^k(\mathcal{D}) \vert > T^k_{\text{crit}}$ then we reject the null and stop. 
+- Otherwise, if $\vert T^k(\mathcal{D}) \vert \leq T^k_{\text{crit}}$, we re-operationalize our scientific hypothesis as $\mathcal{H}^{k=2}_1$ and test again.
+- We continue as such indefinitely and stop when we obtain a significant result, and then report *only* that result.
+- Following this procedure, in the long run, our false positive rate will be $\gg \alpha$.
+
+
+## P-hacking example 1: Subsetting
+
+```{r, cache=TRUE}
+set.seed(10001)
+alpha <- 0.05
+iterations <- 25000
+n <- 20
+is.significant <- function(M) summary(M)$coefficients['independent.var','Pr(>|t|)'] < alpha
+
+any.significant.subsetting <- function(n){
+  
+  dependent.var <- rnorm(2*n)
+  
+  independent.var <- c(rep(0, n),
+                       rep(1, n))
+  
+  gender <- round(runif(2*n))
+  
+  Df <- data.frame(dependent.var, 
+                   independent.var, 
+                   gender)
+  
+  M.0 <- lm(dependent.var ~ independent.var, data = filter(Df, gender==1))
+  M.1 <- lm(dependent.var ~ independent.var, data = filter(Df, gender==0))
+  M.2 <- lm(dependent.var ~ independent.var, data = Df)
+  
+  any(sapply(list(M.0, M.1, M.2), is.significant))
+  
+}
+
+false.positive.rate.subset <- mean(replicate(iterations, any.significant.subsetting(n)))
+
+```
+
+Online demo: https://lawsofthought.shinyapps.io/p_hacking/ 
+
+- Let's assume we want to test if two groups of people differ in the mean value of some variable.
+- In both groups, there are men and women. 
+- We can test just the men, just the women, or both.
+- In a simulation with $n=`r n`$ people in each group, with $\alpha=0.05$, subsetting results in the false positive rate being $\approx$ `r round(false.positive.rate.subset*100, 1)`%.
+
+## P-hacking example 2: Adding a covariate
+
+```{r, cache=TRUE}
+set.seed(1001)
+alpha <- 0.05
+n <- 20
+iterations <- 25000
+
+covariate.phack <- function(n){
+  
+  main.effect.significant <- function(M) summary(M)$coefficients['independent.var','Pr(>|t|)'] < alpha
+  interaction.significant <- function(M) summary(M)$coefficients['independent.var:gender','Pr(>|t|)'] < alpha
+  
+  dependent.var <- rnorm(2*n)
+  
+  independent.var <- c(rep(0, n),
+                       rep(1, n))
+  
+  gender <- round(runif(2*n))
+  
+  M.0 <- lm(dependent.var ~ independent.var)
+  M.1 <- lm(dependent.var ~ independent.var + gender)
+  M.2 <- lm(dependent.var ~ independent.var * gender)
+  
+  any(c(sapply(list(M.0, M.1, M.2),
+               main.effect.significant),
+        interaction.significant(M.2)))
+  
+}
+
+covariate.phack.pcurve <- function(n){
+  
+  main.effect.pvalue <- function(M) summary(M)$coefficients['independent.var','Pr(>|t|)']
+  interaction.pvalue <- function(M) summary(M)$coefficients['independent.var:gender','Pr(>|t|)']
+  
+  dependent.var <- rnorm(2*n)
+  
+  independent.var <- c(rep(0, n),
+                       rep(1, n))
+  
+  gender <- round(runif(2*n))
+  
+  M.0 <- lm(dependent.var ~ independent.var)
+  M.1 <- lm(dependent.var ~ independent.var + gender)
+  M.2 <- lm(dependent.var ~ independent.var * gender)
+  
+  p.values <- c(sapply(list(M.0, M.1, M.2),
+           main.effect.pvalue),
+    interaction.pvalue(M.2))
+  
+  if (any(p.values < alpha)){
+    return(p.values[p.values < alpha][1]) # Return first one
+  } else {
+    return(NULL)
+  }
+  
+}
+
+
+p.curve.values <- unlist(replicate(iterations, covariate.phack.pcurve(n)), recursive = T)
+false.positive.rate.covariate <- mean(replicate(iterations, covariate.phack(n)))
+
+```
+
+- In an identical problem to before, instead of subsetting by gender, we simply add it as a covariate.
+- We then test if the main effect exists in the presence and absence of the gender covariate, or if there is an interaction between gender and the main effect. 
+- In another simulation, $n=`r n`$ people in each group, with $\alpha=0.05$, this leads to the false positive rate being $\approx$ `r round(false.positive.rate.covariate*100, 1)`%. 
+
+## P-hacking example 3: Optional stopping
+
+Online demo: https://lawsofthought.shinyapps.io/optional_stopping/
+
+```{r, include=TRUE,  out.width = "220px", fig.align="center"}
+
+z.test <- function(x){
+  n <- length(x)
+  z <- mean(x) * sqrt(n)
+  pnorm(abs(z), lower.tail=F) * 2.0
+}
+
+is.significant <- function(x, alpha){
+  ifelse(z.test(x) <= alpha, TRUE, FALSE)
+}
+
+sample.until.significance <- function(initial.sample.size = 10,
+                                      alpha=0.05,
+                                      max.sample.size = 100,
+                                      sample.incrementation=10){
+
+  # Draw initial sample
+  x <- rnorm(initial.sample.size)
+
+  # Is the initial sample significant?
+  significant <- is.significant(x, alpha)
+
+  # Repeat until significant (or maximum sample size exceeded)
+  while (!significant & length(x) < max.sample.size){
+
+    x <- c(x, rnorm(sample.incrementation))
+    significant <- is.significant(x, alpha)
+  }
+
+  return(significant)
+
+}
+
+
+error.rates.with.optional.stopping <- function(max.sample.size = 100,
+                                               initial.sample.size = 10,
+                                               sample.size.increment = 10,
+                                               alpha = 0.05,
+                                               iterations = 10000){
+
+  I <- seq(initial.sample.size, max.sample.size, by=sample.size.increment)
+
+  error.rates <- apply(
+    replicate(iterations, {
+      # Draw max-size sample first
+      x <- rnorm(max.sample.size)
+
+      # Calculate the Z statistic after each additional data point
+      # This is (the abs value of) the cumulative mean times the
+      # sqrt of the cumulative sample size
+      z.stats <- abs(cummean(x) * sqrt(seq(length(x))))
+
+      # Calculate the significance after each addtional data point
+      significant <- z.stats >= qnorm(1-alpha/2.0)
+
+      # Examine significance at initial.sample.size and every sample.size.increment
+      # steps until we reach max.sample.size
+      s <- significant[I]
+
+      # A cumulative sum at each value of s tells us how many
+      # significant values we've seen until that point.
+      # If there is more than 0, then that means we would have
+      # stopped at declared a significant result at that stage.
+      cumsum(significant[I]) > 0
+    }), 1, mean)
+
+  data.frame(sample.size = I,
+             error.rate = error.rates)
+
+}
+
+s <- error.rates.with.optional.stopping(initial.sample.size = 10,
+                                        max.sample.size = 100,
+                                        sample.size.increment = 5,
+                                        alpha = 0.05)
+
+g0 <- ggplot(s, mapping=aes(x = sample.size, y=error.rate)) + 
+  theme_classic() + 
+  xlab('Sample size') + 
+  ylab('Probability of significant result')
+
+g0 + geom_bar(stat='identity')
+
+```
+
+- Collecting data, testing, and then collecting more data if results are not significant, leads to a steady rise in false positive rates.
+
+## P-hacking example 4: Removing outliers
+
+```{r, cache=TRUE, include=TRUE}
+set.seed(12345)
+n <- 20
+iterations <- 25000
+alpha <- 0.05
+  
+sd.outliers <- function(x, k=2.0){
+  (x > (mean(x) + k*sd(x))) | (x < (mean(x) - k*sd(x)))
+}
+
+quantile.outliers <- function(x, delta=0.05){
+  (x > quantile(x, 1-delta)) | (x < quantile(x, delta))
+}
+
+k.outliers <- function(x, k=5){
+  (rank(x) > (length(x)-k)) | (rank(x) < k )
+}
+  
+any.significant <- function(n){
+  
+  dependent.var <- rnorm(2*n)
+  independent.var <- c(rep(0, n),
+                       rep(1, n))
+  
+  Df <- data.frame(dependent.var,
+                   independent.var)
+  
+  Df.0 <- Df
+  Df.1 <- Df[!sd.outliers(Df$dependent.var, k=2.0),]
+  Df.2 <- Df[!sd.outliers(Df$dependent.var, k=1.5),]
+  Df.3 <- Df[!quantile.outliers(Df$dependent.var, delta=0.025),]
+  Df.4 <- Df[!quantile.outliers(Df$dependent.var, delta=0.05),]
+  Df.5 <- Df[!k.outliers(Df$dependent.var, k=5),]
+  Df.6 <- Df[!k.outliers(Df$dependent.var, k=2),]
+  
+  is.significant <- function(Df) summary(lm(dependent.var ~ independent.var, data=Df))$coefficients['independent.var','Pr(>|t|)'] < alpha
+  
+  any(sapply(list(Df.0, Df.1, Df.2, Df.3, Df.4, Df.5, Df.6),
+             is.significant))
+  
+}
+
+false.positive.rate.outliers <- mean(replicate(iterations, any.significant(n)))
+```
+
+- Using an identical problem to before, we remove outliers, or not, before testing.
+- Outlier may be defined as any of the following:
+    1. Data above/below 2 SDs from mean.
+    2. Data above/below 1.5 SDs from mean.
+    3. Data in the upper/lower 5% quantiles.
+    4. Data in the upper/lower 5% quantiles.
+    5. The 2 highest/lowest values.
+    6. The 5 highest/lowest values
+- In a simulation, with $n=`r n`$ in each group, and $\alpha = `r alpha`$, this leads to a false positive rate of `r round(100*false.positive.rate.outliers, 1)`%. 
+
+
+## P hacking broadside 
+\framesubtitle{Combine your p-hack tools for maximum effect}
+
+```{r, cache=TRUE, include=TRUE}
+set.seed(101101)
+alpha <- 0.05
+n <- 20
+k <- 10
+N <- 100
+iterations <- 250
+
+gen.data <- function(n){
+  data.frame(dependent.var = rnorm(2*n),
+             independent.var = c(rep(0, n),
+                                 rep(1, n)),
+             gender = round(runif(2*n)))
+}
+
+covariate.phack <- function(Df){
+  
+  main.effect.significant <- function(M) summary(M)$coefficients['independent.var','Pr(>|t|)'] < alpha
+  interaction.significant <- function(M) summary(M)$coefficients['independent.var:gender','Pr(>|t|)'] < alpha
+  
+  M.0 <- lm(dependent.var ~ independent.var, data=Df)
+  M.1 <- lm(dependent.var ~ independent.var + gender, data=Df)
+  M.2 <- lm(dependent.var ~ independent.var * gender, data=Df)
+  
+  any(c(sapply(list(M.0, M.1, M.2),
+               main.effect.significant),
+        interaction.significant(M.2)))
+  
+}
+
+drop.outliers <- function(Df){
+  
+  Df.0 <- Df
+  Df.1 <- Df[!sd.outliers(Df$dependent.var, k=2.0),]
+  Df.2 <- Df[!sd.outliers(Df$dependent.var, k=1.5),]
+  Df.3 <- Df[!quantile.outliers(Df$dependent.var, delta=0.025),]
+  Df.4 <- Df[!quantile.outliers(Df$dependent.var, delta=0.05),]
+  Df.5 <- Df[!k.outliers(Df$dependent.var, k=5),]
+  Df.6 <- Df[!k.outliers(Df$dependent.var, k=2),]
+  
+  list(Df.0, Df.1, Df.2, Df.3, Df.4, Df.5, Df.6)
+}
+
+outlier.covariate.phack <- function(n){
+  
+  Df <- gen.data(n)
+  any(sapply(drop.outliers(Df), covariate.phack))
+  
+}
+
+outlier.covariate.phack.optional.stopping <- function(n, k, N){
+  
+  Df <- gen.data(n)
+  significant <- any(sapply(drop.outliers(Df), covariate.phack))
+  
+  while (!significant & dim(Df)[1] < 2*N){
+    Df <- rbind(Df, gen.data(k))
+    significant <- any(sapply(drop.outliers(Df), covariate.phack))
+  }
+  
+  significant
+  
+}
+
+double.cocktail <- mean(replicate(iterations, outlier.covariate.phack(n)))
+triple.cocktail <- mean(replicate(iterations, outlier.covariate.phack.optional.stopping(n, k, N)))
+
+```
+
+- Using an identical problem to before, we start with two samples of size $n=`r n`$ and $\alpha = `r alpha`$.
+- Combining our removal of outliers method *and* our covariate method leads to a false positive rate of `r round(100*double.cocktail, 1)`%.
+- Combining our removal of outliers method *and* our covariate method *and* collecting `r k` new data points in each group until significance or `r N` in each group leads to a false positive rate of `r round(100*triple.cocktail, 1)`%.
+
+## P-value distribution (p-curves) under null
+
+- The distribution of p-values (p-curves) in any given body of work will be a function of whether the true effect size, which may be zero, and the extent of p-hacking.
+- Whether we can use p-curves in meta-analysis to assess the extent and consequences of p-hacking, as recommended by @simonsohn2014p, is a matter of debate, see 
+    - @gelman2013discussion
+    - @head2015extent
+    - @bishop2016problems
+    - @bruns2016p
+    - @hartgerink2017reanalyzing
+
+## P-curve under null
+
+```{r, cache=TRUE}
+iterations <- 1e5
+
+initial.sample.size <- 10
+alpha <- 0.05
+max.sample.size <- 100
+sample.incrementation <- 10
+
+sample.until.significance.pvalue <- function(initial.sample.size = 10,
+                                             alpha=0.05,
+                                             max.sample.size = 100,
+                                             mu = 0.0,
+                                             sample.incrementation=10){
+  
+  # Draw initial sample
+  x <- rnorm(initial.sample.size, mean=mu)
+  
+  # Is the initial sample significant?
+  significant <- is.significant(x, alpha)
+  
+  # Repeat until significant (or maximum sample size exceeded)
+  while (!significant & length(x) < max.sample.size){
+    
+    x <- c(x, rnorm(sample.incrementation, mean=mu))
+    p.value <- z.test(x)
+    significant <- ifelse(p.value < alpha, TRUE, FALSE)
+  }
+  
+  return(z.test(x))
+  
+}
+
+non.phacked.pvalues <- replicate(iterations,
+                                 z.test(rnorm(initial.sample.size))
+)
+
+non.phacked.pvalues.nonnull.med <- replicate(iterations,
+                                             z.test(rnorm(initial.sample.size, mean=0.5))
+)
+
+non.phacked.pvalues.nonnull.low <- replicate(iterations,
+                                             z.test(rnorm(initial.sample.size, mean=0.2))
+)
+
+phacked.pvalues.null <- replicate(iterations, 
+                                  sample.until.significance.pvalue(initial.sample.size,
+                                                                   alpha,
+                                                                   max.sample.size,
+                                                                   mu = 0.0,
+                                                                   sample.incrementation)
+)
+
+phacked.pvalues.nonnull.low <- replicate(iterations, 
+                                         sample.until.significance.pvalue(initial.sample.size,
+                                                                          alpha,
+                                                                          max.sample.size,
+                                                                          mu = 0.2,
+                                                                          sample.incrementation)
+)
+
+phacked.pvalues.nonnull.med <- replicate(iterations, 
+                                         sample.until.significance.pvalue(initial.sample.size,
+                                                                          alpha,
+                                                                          max.sample.size,
+                                                                          mu = 0.5,
+                                                                          sample.incrementation)
+)
+
+plot.pcurve <- function(pvals){
+  Df <- data.frame(p.values = pvals)
+  dplyr::filter(Df, p.values <= alpha) %>% 
+    ggplot(mapping = aes(x=p.values)) + 
+    geom_histogram(breaks = seq(0.0, 0.05, by=0.003)) + 
+    theme_classic()
+}
+
+
+```
+When null is true, the distribution of p-values is uniform.
+```{r, include=TRUE, echo=FALSE, message=FALSE}
+plot.pcurve(non.phacked.pvalues)
+```
+
+## P-value distribution (p-curve) under non-null
+\framesubtitle{Medium effect}
+
+When null is false, the distribution of p-values is right skewed.
+```{r, include=TRUE, echo=FALSE, message=FALSE}
+plot.pcurve(non.phacked.pvalues.nonnull.med)
+```
+
+## P-curve under non-null
+\framesubtitle{Low effect}
+
+When null is false, the distribution of p-values is right skewed.
+```{r, include=TRUE, echo=FALSE, message=FALSE}
+plot.pcurve(non.phacked.pvalues.nonnull.low)
+```
+
+## P-curve under null with p-hacking
+
+When null is true, the distribution of \emph{p-hacked} p-values is left-skewed.
+```{r, include=TRUE, echo=FALSE, message=FALSE}
+plot.pcurve(phacked.pvalues.null)
+```
+
+## P-curve under non-null with p-hacking
+\framesubtitle{Low effect}
+
+When effect is low, the distribution of \emph{p-hacked} p-values is left-skewed.
+```{r, include=TRUE, echo=FALSE, message=FALSE}
+plot.pcurve(phacked.pvalues.nonnull.low)
+```
+
+## P-curve under non-null with p-hacking
+\framesubtitle{Medium effect}
+
+When effect is medium, the distribution of \emph{p-hacked} p-values is right-skewed.
+```{r, include=TRUE, echo=FALSE, message=FALSE}
+plot.pcurve(phacked.pvalues.nonnull.med)
+```
+
+## Prevalence of P-hacking
+
+\begin{figure}[placeHere]
+  \centering
+    \includegraphics[width=\textwidth]{"figs/john_loewenstein_prelec"}
+\end{figure}
+From @john2012measuring.
+
+## Why P-hacking is so toxic for science
+
+- P-hacking is easy to do (you just need some ethical laxity and some stamina)
+- It is hard to detect 
+- It can dramatically increase the false positive rate
+- False positives are hard to detect and hard to eliminate 
+- False positives add noise to the literature, and result in wasted resources when used as the basis for future research
+- P-hacking may be self-perpetuating: Results are p-hacked because some effects are assumed to be real (on the basis of p-hacked literature)
+
+## How to eliminate p-hacking?
+
+- P-hacking is an ethical problem, rather than a statistical issue. 
+- P-hacking can be eliminated by changing ethical standards:
+    - *Honesty in reporting*: The explicit recommendations in @simmons2011false are largely recommendations for a cultural shift away from selective reporting.
+    - *Pre-registration*: It immediately eliminates *harking* and greatly reduces researcher degrees of freedom
+    - *Open (raw) data and analysis code*: Disclosing all the original data (especially as recommended by @rouder2016and) and the processing/analysis pipeline can make tricks easier to identify, and allows alternative analyses to be performed
+
+## References {.allowframebreaks}
