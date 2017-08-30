@@ -39,7 +39,7 @@ knitr::opts_chunk$set(echo = FALSE, include=FALSE)
 
 
 ## Frequentist statistical testing
-\framesubtitle{Newman-Pearson testing}
+\framesubtitle{Neyman-Pearson testing}
 
 - In advance of data collection, our scientific hypothesis, operationalized as $\mathcal{H}_1$ (e.g. $\mathcal{H}_1: \theta > 0$), is specified. 
 - This leads to a corresponding null hypothesis, e.g. $\mathcal{H}_0: \theta = 0$, a test statistic $T(\mathcal{D})$, and a critical threshold for the statistic $T_{\text{crit}}$, such that
