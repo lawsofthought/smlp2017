@@ -321,9 +321,9 @@ false.positive.rate.outliers <- mean(replicate(iterations, any.significant(n)))
     1. Data above/below 2 SDs from mean.
     2. Data above/below 1.5 SDs from mean.
     3. Data in the upper/lower 5% quantiles.
-    4. Data in the upper/lower 5% quantiles.
-    5. The 2 highest/lowest values.
-    6. The 5 highest/lowest values
+    4. Data in the upper/lower 2.5% quantiles.
+    5. The 5 highest/lowest values.
+    6. The 2 highest/lowest values
 - In a simulation, with $n=`r n`$ in each group, and $\alpha = `r alpha`$, this leads to a false positive rate of `r round(100*false.positive.rate.outliers, 1)`%. 
 
 
@@ -405,7 +405,7 @@ triple.cocktail <- mean(replicate(iterations, outlier.covariate.phack.optional.s
 
 ## P-value distribution (p-curves) under null
 
-- The distribution of p-values (p-curves) in any given body of work will be a function of whether the true effect size, which may be zero, and the extent of p-hacking.
+- The distribution of p-values (p-curves) in any given body of work will be a function of the true effect size, which may be zero, and the extent of p-hacking.
 - Whether we can use p-curves in meta-analysis to assess the extent and consequences of p-hacking, as recommended by @simonsohn2014p, is a matter of debate, see 
     - @gelman2013discussion
     - @head2015extent
